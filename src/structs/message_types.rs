@@ -27,7 +27,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_dhcpv6_valid_message_type() {
+    fn test_valid_dhcpv6_message_type() {
         assert_eq!(
             parse_dhcpv6_message_type(&[1u8][..]),
             Ok((&b""[..], DHCPv6MessageType::Solicit))
@@ -80,5 +80,11 @@ mod tests {
             parse_dhcpv6_message_type(&[13u8][..]),
             Ok((&b""[..], DHCPv6MessageType::RelayRepl))
         );
+    }
+
+    #[test]
+    fn test_invalid_dhcpv6_message_type() {
+        assert!(parse_dhcpv6_message_type(&[0u8][..]).is_err());
+        assert!(parse_dhcpv6_message_type(&[14u8][..]).is_err());
     }
 }

@@ -1,0 +1,13 @@
+[package]
+name = "dhcpv6-parser"
+version = "0.1.0"
+authors = ["Thomas WACHE <thomas.wache@intradef.gouv.fr>"]
+
+[lib]
+name = "dhcpv6_parser"
+crate-type = ["staticlib"]
+
+[dependencies]
+enum-primitive-derive = "^0.1"
+nom = "^4"
+num-traits = "^0.2"

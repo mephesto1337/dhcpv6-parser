@@ -1,4 +1,4 @@
-use nom::{be_u16, be_u32, be_u64, be_u8};
+use nom::{be_u16, be_u32, be_u64, be_u8, IResult};
 use std::net::Ipv6Addr;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -276,6 +276,21 @@ named!(
         20u16 => call!(parse_dhcpv6_option_reconfigure_accept)
     )
 );
+
+pub fn parse_dhcpv6_options(input: &[u8]) -> IResult<&[u8], Vec<DHCPv6Option>> {
+    let mut options: Vec<DHCPv6Option> = Vec::new();
+    let mut rest = input;
+
+    while rest.len() > 0 {
+        let (new_rest, option) = parse_dhcpv6_option(rest)?;
+        options.push(option);
+        rest = new_rest;
+    }
+
+    assert!(rest.len() == 0);
+
+    Ok((rest, options))
+}
 
 #[cfg(test)]
 mod tests {

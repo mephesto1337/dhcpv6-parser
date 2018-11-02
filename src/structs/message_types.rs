@@ -2,6 +2,7 @@ use nom::be_u8;
 use num_traits::FromPrimitive;
 
 #[derive(Debug, Clone, Eq, PartialEq, Primitive)]
+#[repr(u8)]
 pub enum DHCPv6MessageType {
     Solicit = 1,
     Advertise = 2,

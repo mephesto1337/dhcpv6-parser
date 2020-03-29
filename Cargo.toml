@@ -2,6 +2,7 @@
 name = "dhcpv6-parser"
 version = "0.1.0"
 authors = ["Thomas WACHE <thomas.wache@intradef.gouv.fr>"]
+edition = "2018"
 
 [lib]
 name = "dhcpv6_parser"
@@ -9,5 +10,5 @@ crate-type = ["staticlib"]
 
 [dependencies]
 enum-primitive-derive = "^0.1"
-nom = "^4"
+nom = "^5"
 num-traits = "^0.2"

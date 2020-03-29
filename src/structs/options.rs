@@ -1,5 +1,13 @@
-use nom::{be_u16, be_u32, be_u64, be_u8, IResult};
+// use nom::{be_u16, be_u32, be_u64, be_u8, IResult};
+use nom::bytes::complete::take;
+use nom::combinator::verify;
+use nom::multi::{many0, many_m_n};
+use nom::number::complete::{be_u16, be_u32, be_u64};
+use nom::sequence::tuple;
+use nom::IResult;
 use std::net::Ipv6Addr;
+
+use crate::utils::parse_ipv6_address;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DHCPv6Option<'a> {
@@ -72,220 +80,224 @@ pub enum DHCPv6Option<'a> {
     ReconfigureAccept {},
 }
 
-named!(
-    parse_dhcpv6_option_client_id<DHCPv6Option>,
-    do_parse!(len: be_u16 >> duid: take!(len) >> (DHCPv6Option::CliendID { duid }))
-);
+fn parse_dhcpv6_option_client_id(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = be_u16(input)?;
+    let (rest, duid) = take(len as usize)(rest)?;
 
-named!(
-    parse_dhcpv6_option_server_id<DHCPv6Option>,
-    do_parse!(len: be_u16 >> duid: take!(len) >> (DHCPv6Option::ServerID { duid }))
-);
+    Ok((rest, DHCPv6Option::CliendID { duid }))
+}
 
-named!(
-    parse_dhcpv6_option_ia_na<DHCPv6Option>,
-    do_parse!(
-        len: verify!(be_u16, |x| x >= 12)
-            >> id: be_u32
-            >> time_1: be_u32
-            >> time_2: be_u32
-            >> options: take!(len - 12)
-            >> (DHCPv6Option::IdentityAssociationForNonTemporaryAddresses {
-                id,
-                time_1,
-                time_2,
-                options
-            })
-    )
-);
+fn parse_dhcpv6_option_server_id(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = be_u16(input)?;
+    let (rest, duid) = take(len as usize)(rest)?;
 
-named!(
-    parse_dhcpv6_option_ia_ta<DHCPv6Option>,
-    do_parse!(
-        len: verify!(be_u16, |x| x >= 4)
-            >> id: be_u32
-            >> options: take!(len - 4)
-            >> (DHCPv6Option::IdentityAssociationForTemporaryAddresses { id, options })
-    )
-);
+    Ok((rest, DHCPv6Option::ServerID { duid }))
+}
 
-named!(
-    parse_dhcpv6_option_ia<DHCPv6Option>,
-    do_parse!(
-        len: verify!(be_u16, |x| x >= 24)
-            >> address: map!(count_fixed!(u8, be_u8, 16), Ipv6Addr::from)
-            >> prefered_lifetime: be_u32
-            >> valid_lifetime: be_u32
-            >> options: take!(len - 24)
-            >> (DHCPv6Option::IdentityAssociationAddress {
-                address,
-                prefered_lifetime,
-                valid_lifetime,
-                options
-            })
-    )
-);
+fn parse_dhcpv6_option_ia_na(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = verify(be_u16, |len: &u16| *len >= 12)(input)?;
+    let (rest, (id, time_1, time_2, options)) =
+        tuple((be_u32, be_u32, be_u32, take(len as usize - 12usize)))(rest)?;
 
-named!(
-    parse_dhcpv6_option_option_request<DHCPv6Option>,
-    do_parse!(
-        len: verify!(be_u16, |x| x % 2 == 0)
-            >> options: count!(be_u16, len as usize / 2usize)
-            >> (DHCPv6Option::OptionRequest { options })
-    )
-);
+    Ok((
+        rest,
+        DHCPv6Option::IdentityAssociationForNonTemporaryAddresses {
+            id,
+            time_1,
+            time_2,
+            options,
+        },
+    ))
+}
 
-named!(
-    parse_dhcpv6_option_preference<DHCPv6Option>,
-    do_parse!(
-        _len: verify!(be_u16, |x| x == 1)
-            >> pref_value: be_u8
-            >> (DHCPv6Option::Preference { pref_value })
-    )
-);
+fn parse_dhcpv6_option_ia_ta(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = verify(be_u16, |len: &u16| *len >= 4)(input)?;
+    let (rest, (id, options)) = tuple((be_u32, take(len as usize - 4usize)))(rest)?;
 
-named!(
-    parse_dhcpv6_option_elapsted_time<DHCPv6Option>,
-    do_parse!(
-        _len: verify!(be_u16, |x| x == 2)
-            >> elapsed_time: be_u16
-            >> (DHCPv6Option::ElapstedTime { elapsed_time })
-    )
-);
+    Ok((
+        rest,
+        DHCPv6Option::IdentityAssociationForTemporaryAddresses { id, options },
+    ))
+}
 
-named!(
-    parse_dhcpv6_option_relay_message<DHCPv6Option>,
-    do_parse!(len: be_u16 >> data: take!(len) >> (DHCPv6Option::RelayMessage { data }))
-);
+fn parse_dhcpv6_option_ia(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = verify(be_u16, |len: &u16| *len >= 24)(input)?;
+    let (rest, (address, prefered_lifetime, valid_lifetime, options)) = tuple((
+        parse_ipv6_address,
+        be_u32,
+        be_u32,
+        take(len as usize - 24usize),
+    ))(rest)?;
 
-named!(
-    parse_dhcpv6_option_authentication<DHCPv6Option>,
-    do_parse!(
-        len: verify!(be_u16, |x| x >= 11)
-            >> protocol: be_u8
-            >> algorithm: be_u8
-            >> rdm: be_u8
-            >> replay_detection: be_u64
-            >> authentication_information: take!(len - 11)
-            >> (DHCPv6Option::Authentication {
-                protocol,
-                algorithm,
-                rdm,
-                replay_detection,
-                authentication_information
-            })
-    )
-);
+    Ok((
+        rest,
+        DHCPv6Option::IdentityAssociationAddress {
+            address,
+            prefered_lifetime,
+            valid_lifetime,
+            options,
+        },
+    ))
+}
 
-named!(
-    parse_dhcpv6_option_server_unicast<DHCPv6Option>,
-    do_parse!(
-        _len: verify!(be_u16, |x| x == 16)
-            >> address: map!(count_fixed!(u8, be_u8, 16), Ipv6Addr::from)
-            >> (DHCPv6Option::ServerUnicast { address })
-    )
-);
+fn parse_dhcpv6_option_option_request(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = verify(be_u16, |len: &u16| *len & 1 == 0)(input)?;
+    let count = len as usize / 2;
+    let (rest, options) = many_m_n(count, count, be_u16)(rest)?;
 
-named!(
-    parse_dhcpv6_option_status_code<DHCPv6Option>,
-    do_parse!(
-        len: verify!(be_u16, |x| x >= 2)
-            >> code: be_u16
-            >> message: take_str!(len - 2)
-            >> (DHCPv6Option::StatusCode { code, message })
-    )
-);
+    Ok((rest, DHCPv6Option::OptionRequest { options }))
+}
 
-named!(
-    parse_dhcpv6_option_rapid_commit<DHCPv6Option>,
-    do_parse!(_len: verify!(be_u16, |x| x == 0) >> (DHCPv6Option::RapidCommit {}))
-);
+fn parse_dhcpv6_option_preference(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, _len) = verify(be_u16, |len: &u16| *len == 1)(input)?;
+    let pref_value = rest[0];
 
-named!(
-    parse_dhcpv6_option_user_class<DHCPv6Option>,
-    do_parse!(len: be_u16 >> data: take!(len) >> (DHCPv6Option::UserClass { data }))
-);
+    Ok((&rest[1..], DHCPv6Option::Preference { pref_value }))
+}
 
-named!(
-    parse_dhcpv6_option_vendor_class<DHCPv6Option>,
-    do_parse!(
-        len: verify!(be_u16, |x| x >= 4)
-            >> enterprise_number: be_u32
-            >> data: take!(len - 4)
-            >> (DHCPv6Option::VendorClass {
-                enterprise_number,
-                data
-            })
-    )
-);
+fn parse_dhcpv6_option_elapsted_time(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, _len) = verify(be_u16, |len: &u16| *len == 2)(input)?;
+    let (rest, elapsed_time) = be_u16(rest)?;
 
-named!(
-    parse_dhcpv6_option_vendor_specific_information<DHCPv6Option>,
-    do_parse!(
-        len: verify!(be_u16, |x| x >= 4)
-            >> enterprise_number: be_u32
-            >> data: take!(len - 4)
-            >> (DHCPv6Option::VendorSpecificInformation {
-                enterprise_number,
-                data
-            })
-    )
-);
+    Ok((rest, DHCPv6Option::ElapstedTime { elapsed_time }))
+}
 
-named!(
-    parse_dhcpv6_option_interface_id<DHCPv6Option>,
-    do_parse!(len: be_u16 >> data: take!(len) >> (DHCPv6Option::InterfaceID { data }))
-);
+fn parse_dhcpv6_option_relay_message(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = be_u16(input)?;
+    let (rest, data) = take(len as usize)(rest)?;
 
-named!(
-    parse_dhcpv6_option_reconfigure_message<DHCPv6Option>,
-    do_parse!(
-        _len: verify!(be_u16, |x| x == 1)
-            >> message_type: be_u8
-            >> (DHCPv6Option::ReconfigureMessage { message_type })
-    )
-);
+    Ok((rest, DHCPv6Option::RelayMessage { data }))
+}
 
-named!(
-    parse_dhcpv6_option_reconfigure_accept<DHCPv6Option>,
-    do_parse!(_len: verify!(be_u16, |x| x == 0) >> (DHCPv6Option::ReconfigureAccept {}))
-);
+fn parse_dhcpv6_option_authentication(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = verify(be_u16, |len: &u16| *len >= 11)(input)?;
+    let (protocol, algorithm, rdm) = (rest[0], rest[1], rest[2]);
+    let (rest, (replay_detection, authentication_information)) =
+        tuple((be_u64, take(len as usize - 11)))(&rest[3..])?;
 
-named!(
-    pub parse_dhcpv6_option<DHCPv6Option>,
-    switch!(be_u16,
-        1u16 => call!(parse_dhcpv6_option_client_id) |
-        2u16 => call!(parse_dhcpv6_option_server_id) |
-        3u16 => call!(parse_dhcpv6_option_ia_na) |
-        4u16 => call!(parse_dhcpv6_option_ia_ta) |
-        5u16 => call!(parse_dhcpv6_option_ia) |
-        6u16 => call!(parse_dhcpv6_option_option_request) |
-        7u16 => call!(parse_dhcpv6_option_preference) |
-        8u16 => call!(parse_dhcpv6_option_elapsted_time) |
-        9u16 => call!(parse_dhcpv6_option_relay_message) |
+    Ok((
+        rest,
+        DHCPv6Option::Authentication {
+            protocol,
+            algorithm,
+            rdm,
+            replay_detection,
+            authentication_information,
+        },
+    ))
+}
+
+fn parse_dhcpv6_option_server_unicast(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, _len) = verify(be_u16, |len: &u16| *len == 16)(input)?;
+    let (rest, address) = parse_ipv6_address(rest)?;
+
+    Ok((rest, DHCPv6Option::ServerUnicast { address }))
+}
+
+fn parse_dhcpv6_option_status_code(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = verify(be_u16, |len: &u16| *len >= 2)(input)?;
+    let (rest, (code, raw_message)) = tuple((be_u16, take(len as usize - 2)))(rest)?;
+
+    if let Ok(message) = ::std::str::from_utf8(raw_message) {
+        Ok((rest, DHCPv6Option::StatusCode { code, message }))
+    } else {
+        Err(::nom::Err::Error((rest, ::nom::error::ErrorKind::Verify)))
+    }
+}
+
+fn parse_dhcpv6_option_rapid_commit(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, _len) = verify(be_u16, |len: &u16| *len == 0)(input)?;
+
+    Ok((rest, DHCPv6Option::RapidCommit {}))
+}
+
+fn parse_dhcpv6_option_user_class(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = be_u16(input)?;
+    let (rest, data) = take(len as usize)(rest)?;
+
+    Ok((rest, DHCPv6Option::UserClass { data }))
+}
+
+fn parse_dhcpv6_option_vendor_class(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = verify(be_u16, |len: &u16| *len >= 4)(input)?;
+    let (rest, (enterprise_number, data)) = tuple((be_u32, take(len as usize - 4)))(rest)?;
+
+    Ok((
+        rest,
+        DHCPv6Option::VendorClass {
+            enterprise_number,
+            data,
+        },
+    ))
+}
+
+fn parse_dhcpv6_option_vendor_specific_information(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = verify(be_u16, |len: &u16| *len >= 4)(input)?;
+    let (rest, (enterprise_number, data)) = tuple((be_u32, take(len as usize - 4)))(rest)?;
+
+    Ok((
+        rest,
+        DHCPv6Option::VendorSpecificInformation {
+            enterprise_number,
+            data,
+        },
+    ))
+}
+
+fn parse_dhcpv6_option_interface_id(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, len) = be_u16(input)?;
+    let (rest, data) = take(len as usize)(rest)?;
+
+    Ok((rest, DHCPv6Option::InterfaceID { data }))
+}
+
+fn parse_dhcpv6_option_reconfigure_message(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, _len) = verify(be_u16, |len: &u16| *len == 1)(input)?;
+
+    Ok((
+        &rest[1..],
+        DHCPv6Option::ReconfigureMessage {
+            message_type: rest[0],
+        },
+    ))
+}
+
+fn parse_dhcpv6_option_reconfigure_accept(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, _len) = verify(be_u16, |len: &u16| *len == 0)(input)?;
+
+    Ok((rest, DHCPv6Option::ReconfigureAccept {}))
+}
+
+pub fn parse_dhcpv6_option(input: &[u8]) -> IResult<&[u8], DHCPv6Option> {
+    let (rest, kind) = be_u16(input)?;
+
+    match kind {
+        1u16 => parse_dhcpv6_option_client_id(rest),
+        2u16 => parse_dhcpv6_option_server_id(rest),
+        3u16 => parse_dhcpv6_option_ia_na(rest),
+        4u16 => parse_dhcpv6_option_ia_ta(rest),
+        5u16 => parse_dhcpv6_option_ia(rest),
+        6u16 => parse_dhcpv6_option_option_request(rest),
+        7u16 => parse_dhcpv6_option_preference(rest),
+        8u16 => parse_dhcpv6_option_elapsted_time(rest),
+        9u16 => parse_dhcpv6_option_relay_message(rest),
         // no 10u16
-        11u16 => call!(parse_dhcpv6_option_authentication) |
-        12u16 => call!(parse_dhcpv6_option_server_unicast) |
-        13u16 => call!(parse_dhcpv6_option_status_code) |
-        14u16 => call!(parse_dhcpv6_option_rapid_commit) |
-        15u16 => call!(parse_dhcpv6_option_user_class) |
-        16u16 => call!(parse_dhcpv6_option_vendor_class) |
-        17u16 => call!(parse_dhcpv6_option_vendor_specific_information) |
-        18u16 => call!(parse_dhcpv6_option_interface_id) |
-        19u16 => call!(parse_dhcpv6_option_reconfigure_message) |
-        20u16 => call!(parse_dhcpv6_option_reconfigure_accept)
-    )
-);
+        11u16 => parse_dhcpv6_option_authentication(rest),
+        12u16 => parse_dhcpv6_option_server_unicast(rest),
+        13u16 => parse_dhcpv6_option_status_code(rest),
+        14u16 => parse_dhcpv6_option_rapid_commit(rest),
+        15u16 => parse_dhcpv6_option_user_class(rest),
+        16u16 => parse_dhcpv6_option_vendor_class(rest),
+        17u16 => parse_dhcpv6_option_vendor_specific_information(rest),
+        18u16 => parse_dhcpv6_option_interface_id(rest),
+        19u16 => parse_dhcpv6_option_reconfigure_message(rest),
+        20u16 => parse_dhcpv6_option_reconfigure_accept(rest),
+        _ => Err(::nom::Err::Error((rest, ::nom::error::ErrorKind::Switch))),
+    }
+}
 
 pub fn parse_dhcpv6_options(input: &[u8]) -> IResult<&[u8], Vec<DHCPv6Option>> {
-    let mut options: Vec<DHCPv6Option> = Vec::new();
-    let mut rest = input;
-
-    while rest.len() > 0 {
-        let (new_rest, option) = parse_dhcpv6_option(rest)?;
-        options.push(option);
-        rest = new_rest;
-    }
+    let (rest, options) = many0(parse_dhcpv6_option)(input)?;
 
     assert!(rest.len() == 0);
 

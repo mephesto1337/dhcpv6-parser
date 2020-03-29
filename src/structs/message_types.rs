@@ -1,4 +1,6 @@
-use nom::be_u8;
+use nom::IResult;
+use nom::combinator::map_opt;
+use nom::number::complete::be_u8;
 use num_traits::FromPrimitive;
 
 #[derive(Debug, Clone, Eq, PartialEq, Primitive)]
@@ -19,9 +21,9 @@ pub enum DHCPv6MessageType {
     RelayRepl = 13,
 }
 
-named!(pub parse_dhcpv6_message_type<DHCPv6MessageType>,
-    map_opt!(be_u8, DHCPv6MessageType::from_u8)
-);
+pub fn parse_dhcpv6_message_type(input: &[u8]) -> IResult<&[u8], DHCPv6MessageType> {
+    map_opt(be_u8, DHCPv6MessageType::from_u8)(input)
+    }
 
 #[cfg(test)]
 mod tests {

@@ -1,8 +1,8 @@
-use nom::number::complete::{be_u8, be_u24};
-use nom::IResult;
-use nom::sequence::tuple;
-use crate::structs::options::{parse_dhcpv6_options, DHCPv6Option};
 use crate::structs::message_types::{parse_dhcpv6_message_type, DHCPv6MessageType};
+use crate::structs::options::{parse_dhcpv6_options, DHCPv6Option};
+use nom::number::complete::{be_u24, be_u8};
+use nom::sequence::tuple;
+use nom::IResult;
 use std::net::Ipv6Addr;
 
 use crate::utils::parse_ipv6_address;
@@ -23,20 +23,43 @@ pub enum DHCPv6Header<'a> {
     },
 }
 
-fn parse_dhcpv6_header_client_server(input: &[u8], message_type: DHCPv6MessageType) -> IResult<&[u8], DHCPv6Header> {
-   let (rest, (transaction_id, options)) = tuple((be_u24, parse_dhcpv6_options))(input)?;
+fn parse_dhcpv6_header_client_server(
+    input: &[u8],
+    message_type: DHCPv6MessageType,
+) -> IResult<&[u8], DHCPv6Header> {
+    let (rest, (transaction_id, options)) = tuple((be_u24, parse_dhcpv6_options))(input)?;
 
-    Ok((rest, DHCPv6Header::ClientServer {
-            message_type, transaction_id, options
-        }))
+    Ok((
+        rest,
+        DHCPv6Header::ClientServer {
+            message_type,
+            transaction_id,
+            options,
+        },
+    ))
 }
 
-fn parse_dhcpv6_header_relay_agent_server(input: &[u8], message_type: DHCPv6MessageType) -> IResult<&[u8], DHCPv6Header> {
-    let (rest, (hop_count, link_address, peer_address, options)) = tuple((be_u8, parse_ipv6_address, parse_ipv6_address, parse_dhcpv6_options))(input)?;
+fn parse_dhcpv6_header_relay_agent_server(
+    input: &[u8],
+    message_type: DHCPv6MessageType,
+) -> IResult<&[u8], DHCPv6Header> {
+    let (rest, (hop_count, link_address, peer_address, options)) = tuple((
+        be_u8,
+        parse_ipv6_address,
+        parse_ipv6_address,
+        parse_dhcpv6_options,
+    ))(input)?;
 
-        Ok((rest, DHCPv6Header::RelayAgentServer {
-            message_type, hop_count, link_address, peer_address, options
-        }))
+    Ok((
+        rest,
+        DHCPv6Header::RelayAgentServer {
+            message_type,
+            hop_count,
+            link_address,
+            peer_address,
+            options,
+        },
+    ))
 }
 
 pub fn parse_dhcpv6_header(input: &[u8]) -> IResult<&[u8], DHCPv6Header> {
